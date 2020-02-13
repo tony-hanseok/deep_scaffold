@@ -1,35 +1,24 @@
 """Module used to build test dataset"""
-# region
 import gc
 import gzip
 import io
 import pickle
 import sys
 import typing as t
-# endregion
 
 
-def get_test_dataset(scaffold_network_loc: str,
-                     exclude_ids_loc: str,
-                     output_loc: str,
-                     threshold: t.Tuple[int, int] = (10, 10000)):
-    """
-    Get test molecule-scaffold dataset using exclude_ids_loc
+def get_test_dataset(scaffold_network_loc, exclude_ids_loc, output_loc, threshold=(10, 10000)):
+    """Get test molecule-scaffold dataset using exclude_ids_loc
 
     Args:
-        scaffold_network_loc (str):
-            The location of scaffold_molecules.pkl.gz
-        exclude_ids_loc (str):
-            The files containing the molecule ids to be excluded
-        output_loc (str):
-            The location to output the result
-        threshold (t.Tuple[int, int], optional):
-            The minimum and maximum amount of molecule needs to be contained
-            in the scaffold. Defaults to (10, 10000).
+        scaffold_network_loc (str): The location of scaffold_molecules.pkl.gz
+        exclude_ids_loc (str): The files containing the molecule ids to be excluded
+        output_loc (str): The location to output the result
+        threshold (t.Tuple[int, int], optional): The minimum and maximum amount of molecule needs to be contained
+                                                 in the scaffold. Defaults to (10, 10000).
     """
     # Load dataset
     gc.disable()
-    # pylint: disable=invalid-name
     with gzip.open(scaffold_network_loc, 'rb') as f:
         scaffold2molecule: t.Dict[int, t.Set[int]]
         # Compile the mapping between scaffold and molecule
@@ -65,6 +54,4 @@ def get_test_dataset(scaffold_network_loc: str,
 
 
 if __name__ == "__main__":
-    get_test_dataset(sys.argv[1],
-                     sys.argv[2],
-                     sys.argv[3])
+    get_test_dataset(sys.argv[1], sys.argv[2], sys.argv[3])

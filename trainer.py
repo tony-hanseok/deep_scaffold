@@ -10,13 +10,15 @@ import typing as t
 
 import numpy as np
 import torch
+from deep_scaffold import DeepScaffold
 from torch import nn
 from torch import optim
 
 from data_utils import get_data_loader
 from data_utils import get_data_loader_full
 from mol_spec import MoleculeSpec
-from deep_scaffold import DeepScaffold
+
+
 # endregion
 
 
@@ -161,6 +163,7 @@ def _init_mdl(num_atom_embedding: int,
         'activation': activation,
     }
     mdl = DeepScaffold(**configs)
+
     # !SECTION
 
     # SECTION Weight initializer
@@ -171,6 +174,7 @@ def _init_mdl(num_atom_embedding: int,
                 m.bias.data.zero_()
         elif isinstance(m, nn.BatchNorm1d):
             m.weight.data.fill_(1.0)
+
     mdl.apply(init_weights)
     # !SECTION
 
@@ -325,10 +329,10 @@ def _loss(mol_array: np.ndarray,
     # Unflatten
     ll = ll.view(batch_size, k)
     # Get total likelihood
-    ll = ll.sub(log_p)\
-           .logsumexp(dim=-1)\
-           .sub(math.log(float(k)))\
-           .mean()
+    ll = ll.sub(log_p) \
+        .logsumexp(dim=-1) \
+        .sub(math.log(float(k))) \
+        .mean()
     # Get final loss
     loss = -ll
     return loss
@@ -431,7 +435,7 @@ def engine(ckpt_loc: str = 'ckpt/ckpt-default',
            num_iterations: int = 50000,
            k: int = 5,
            p: float = 0.5,
-           gpu_ids: t.Mapping[int, int] = (0, 1, 2, 3)):
+           gpu_ids: t.Mapping[int, int]=(0, 1, 2, 3)):
     """
     Engine for training scaffold based VAE
 

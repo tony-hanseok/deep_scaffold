@@ -1,30 +1,18 @@
 """Operations"""
-# region
 import typing as t
 
 import numpy as np
-from scipy import sparse
 import torch
-from torch import nn
 import torch_scatter
+from scipy import sparse
+from torch import nn
 
 from mol_spec import MoleculeSpec
-# endregion
+
+__all__ = ['get_activation', 'pad_first', 'rep_and_range', 'pack_encoder', 'pack_decoder']
 
 
-__all__ = ['get_activation',
-           'pad_first',
-           'rep_and_range',
-           'pack_encoder',
-           'pack_decoder']
-
-
-# pylint: disable=invalid-name
-def segment_softmax_with_bias(x: torch.Tensor,
-                              bias: torch.Tensor,
-                              seg_ids: torch.Tensor,
-                              eps: float = 1e-6) -> t.Tuple[torch.Tensor,
-                                                            torch.Tensor]:
+def segment_softmax_with_bias(x, bias, seg_ids, eps=1e-6):
     """Segment softmax with bias
 
     Args:
@@ -42,40 +30,35 @@ def segment_softmax_with_bias(x: torch.Tensor,
 
     # The max trick
     # size: [N, F + 1]
-    # pylint: disable=bad-continuation
-    x_max: torch.Tensor = torch.cat([x,
-                                     bias.index_select(0, seg_ids)
-                                         .unsqueeze(-1)],
-                                    dim=-1)
+    x_max: torch.Tensor = torch.cat([x, bias.index_select(0, seg_ids).unsqueeze(-1)], dim=-1)
+
     # size: [N, ]
     x_max, _ = torch.max(x_max, dim=-1)
+
     # size: [num_seg, ]
-    x_max, _ = torch_scatter.scatter_max(x_max,
-                                         index=seg_ids,
-                                         dim=0,
-                                         dim_size=num_seg)
+    x_max, _ = torch_scatter.scatter_max(x_max, index=seg_ids, dim=0, dim_size=num_seg)
 
     x = x - x_max.index_select(0, seg_ids).unsqueeze(-1)
     bias = bias - x_max
 
     x_exp, bias_exp = torch.exp(x), torch.exp(bias)
     # shape: [num_seg, ]
-    x_sum = torch_scatter.scatter_add(x_exp.sum(-1), dim=0,
-                                      index=seg_ids, dim_size=num_seg)
+    x_sum = torch_scatter.scatter_add(x_exp.sum(-1), dim=0, index=seg_ids, dim_size=num_seg)
+
     # shape: [num_seg, ]
     x_bias_sum = x_sum + bias_exp + eps
+
     # shape: [N, F]
     x_softmax = x_exp / x_bias_sum.index_select(0, seg_ids).unsqueeze(-1)
+
     # shape: [num_seg, ]
     bias_softmax = bias_exp / x_bias_sum
 
     return x_softmax, bias_softmax
 
 
-def get_activation(name: str,
-                   *args,
-                   **kwargs):
-    """ Get activation module by name
+def get_activation(name, *args, **kwargs):
+    """Get activation module by name
 
     Args:
         name (str): The name of the activation function (relu, elu, selu)
@@ -95,25 +78,21 @@ def get_activation(name: str,
         raise ValueError('Activation not implemented')
 
 
-def pad_first(x: torch.Tensor) -> torch.Tensor:
-    """ Add a single zero padding at the beginning of x
+def pad_first(x):
+    """Add a single zero padding at the beginning of x
 
     Args:
-        x (torch.Tensor):
-            The input tensor.
-            The dimension of x should be 1 and the type of x should be
-            `torch.long`
+        x (torch.Tensor): The input tensor. The dimension of x should be 1 and the type of x should be `torch.long`
 
     Returns:
         torch.Tensor: The output tensor
     """
     assert len(x.shape) == 1
-    # pylint: disable=not-callable
     padding = torch.tensor([0, ], dtype=torch.long, device=x.device)
     return torch.cat([padding, x])
 
 
-def rep_and_range(x: torch.Tensor):
+def rep_and_range(x):
     """
     Examples:
         (3, 2, 5) -> (0, 0, 0, 1, 1, 2, 2, 2, 2, 2) ,
@@ -135,35 +114,22 @@ def rep_and_range(x: torch.Tensor):
     return rep_range, range_rep
 
 
-# pylint: disable=too-many-statements
-def pack_decoder(mol_array: torch.Tensor,
-                 ms=MoleculeSpec.get_default()) -> t.Tuple[torch.Tensor, ...]:
-    """
-    Pack and expand information in mol_array in order to feed into the neural
-    network
+def pack_decoder(mol_array, ms=MoleculeSpec.get_default()):
+    """Pack and expand information in mol_array in order to feed into the neural network
 
     Args:
-        mol_array (torch.Tensor):
-            input molecule array,
-            size [batch_size, max_num_steps, 5], type: `torch.long`
-            5 = atom_type + begin_ids + end_ids + bond_type + is_scaffold
+        mol_array (torch.Tensor): input molecule array, size [batch_size, max_num_steps, 5], type: `torch.long`
+                                  5 = atom_type + begin_ids + end_ids + bond_type + is_scaffold
         ms (mol_spec.MoleculeSpec)
 
     Returns:
-        atom_types (torch.Tensor):
-            Atom type information packed into a single vector, type: torch.long
-        is_scaffold (torch.Tensor):
-            Whether the corresponding atom is contained in the scaffold,
-            type: torch.long
-        bond_info (torch.Tensor):
-            Bond type information packed into a single matrix,
-            type: torch.long, shape: [-1, 3]
-            3 = begin_ids + end_ids + bond_type
-        actions (torch.Tensor):
-        The action to carry out at each step, type: torch.long, shape: [-1, 5]
-            5 = action_type + atom_type + bond_type + append_loc + connect_loc
-        mol_ids, step_ids, block_ids (torch.Tensor):
-            Index information, type: torch.long
+        atom_types (torch.Tensor): Atom type information packed into a single vector, type: torch.long
+        is_scaffold (torch.Tensor): Whether the corresponding atom is contained in the scaffold, type: torch.long
+        bond_info (torch.Tensor): Bond type information packed into a single matrix, type: torch.long, shape: [-1, 3]
+                                  3 = begin_ids + end_ids + bond_type
+        actions (torch.Tensor): The action to carry out at each step, type: torch.long, shape: [-1, 5]
+                                5 = action_type + atom_type + bond_type + append_loc + connect_loc
+        mol_ids, step_ids, block_ids (torch.Tensor): Index information, type: torch.long
     """
     # get device info
     device = mol_array.device
@@ -171,14 +137,13 @@ def pack_decoder(mol_array: torch.Tensor,
     # magic numbers
     I_ATOM_TYPE, I_BEGIN_IDS, I_END_IDS, I_BOND_TYPE, I_IS_SCAFFOLD = range(5)
 
-    # The number of decoding steps required for the entire molecule
-    # size: [batch_size, ]
+    # The number of decoding steps required for the entire molecule, size: [batch_size, ]
     num_total_steps = mol_array[:, :, I_END_IDS].ge(0).long().sum(-1)
-    # The number of steps required for the generation of scaffold,
-    # size: [batch_size, ]
+
+    # The number of steps required for the generation of scaffold, size: [batch_size, ]
     num_scaffold_steps = mol_array[:, :, I_IS_SCAFFOLD].eq(1).long().sum(-1)
-    # The number of steps required for the generation of side chains,
-    # size: [batch_size, ]
+
+    # The number of steps required for the generation of side chains, size: [batch_size, ]
     # NOTE: The additional 1 step is the termination step
     num_steps = num_total_steps - num_scaffold_steps + 1
 
@@ -201,8 +166,7 @@ def pack_decoder(mol_array: torch.Tensor,
     # steps:        |  0  |   1   |    2    | 0 |  1  |
     # rep_ids_rep = [0 0 0 1 1 1 1 2 2 2 2 2 3 3 4 4 4]
     # indexer     = [0 1 2 0 1 2 3 0 1 2 3 4 0 1 0 1 2]
-    (rep_ids_rep,
-     indexer) = rep_and_range(step_ids + num_scaffold_steps[mol_ids])
+    rep_ids_rep, indexer = rep_and_range(step_ids + num_scaffold_steps[mol_ids])
 
     # Expanding mol_ids
     # Example:
@@ -227,8 +191,8 @@ def pack_decoder(mol_array: torch.Tensor,
     mol_array_packed = mol_array[mol_ids_rep, indexer, :]
 
     # Get the expanded atom type
-    atom_types, is_scaffold = (mol_array_packed[:, I_ATOM_TYPE],
-                               mol_array_packed[:, I_IS_SCAFFOLD])
+    atom_types = mol_array_packed[:, I_ATOM_TYPE]
+    is_scaffold = mol_array_packed[:, I_IS_SCAFFOLD]
 
     # Get the number of atom at each step: |V_i|
     # Example:
@@ -249,7 +213,7 @@ def pack_decoder(mol_array: torch.Tensor,
     last_append_loc = torch.cumsum(num_atoms, dim=0) - 1
     # Initialize last_append_mask as zeros
     last_append_mask = torch.full_like(is_scaffold, OLD_ATOM)
-    last_append_mask[last_append_loc] = torch.where(
+    last_append_mask[last_append_loc] = torch.where(  # TODO: too long
         is_scaffold[last_append_loc].eq(1),
         torch.full_like(last_append_loc, OLD_ATOM),
         torch.where(
@@ -276,43 +240,23 @@ def pack_decoder(mol_array: torch.Tensor,
     bond_info = torch.cat([bond_info, bond_info[:, [1, 0, 2]]], )
 
     # labels for artificial bonds
-    (I_BOND_REMOTE_2,
-     I_BOND_REMOTE_3,
-     I_BOND_ATOM_SELF) = range(ms.num_bond_types, ms.num_bond_types + 3)
+    I_BOND_REMOTE_2, I_BOND_REMOTE_3, I_BOND_ATOM_SELF = range(ms.num_bond_types, ms.num_bond_types + 3)
 
     # artificial bond type: remote connection
     indices = bond_info[:, :2].cpu().numpy()
     size = atom_types.size(0)
     d_indices_2, d_indices_3 = get_remote_connection(indices, size)
-    # pylint: disable=not-callable
-    d_indices_2, d_indices_3 = (
-        torch.tensor(d_indices_2,
-                     dtype=torch.long,
-                     device=device),
-        torch.tensor(d_indices_3,
-                     dtype=torch.long,
-                     device=device)
-    )
-    bond_type = torch.full([d_indices_2.size(0), 1],
-                           I_BOND_REMOTE_2,
-                           dtype=torch.long,
-                           device=device)
-    bond_info_remote_2 = torch.cat([d_indices_2,
-                                    bond_type],
-                                   dim=-1)
-    bond_type = torch.full([d_indices_3.size(0), 1],
-                           I_BOND_REMOTE_3,
-                           dtype=torch.long,
-                           device=device)
+    d_indices_2 = torch.tensor(d_indices_2, dtype=torch.long, device=device)
+    d_indices_3 = torch.tensor(d_indices_3, dtype=torch.long, device=device)
+
+    bond_type = torch.full([d_indices_2.size(0), 1], I_BOND_REMOTE_2, dtype=torch.long, device=device)
+    bond_info_remote_2 = torch.cat([d_indices_2, bond_type], dim=-1)
+    bond_type = torch.full([d_indices_3.size(0), 1], I_BOND_REMOTE_3, dtype=torch.long, device=device)
     bond_info_remote_3 = torch.cat([d_indices_3, bond_type], dim=-1)
-    bond_info = torch.cat([bond_info,
-                           bond_info_remote_2,
-                           bond_info_remote_3], dim=0)
+    bond_info = torch.cat([bond_info, bond_info_remote_2, bond_info_remote_3], dim=0)
 
     # artificial bond type: self connection
-    begin_ids = end_ids = torch.arange(atom_types.size(0),
-                                       dtype=torch.long,
-                                       device=atom_types.device)
+    begin_ids = end_ids = torch.arange(atom_types.size(0), dtype=torch.long, device=atom_types.device)
     bond_type = torch.full_like(end_ids, I_BOND_ATOM_SELF)
     bond_info_self = torch.stack([begin_ids, end_ids, bond_type], dim=-1)
     bond_info = torch.cat([bond_info, bond_info_self], dim=0)
@@ -326,9 +270,7 @@ def pack_decoder(mol_array: torch.Tensor,
 
     # get the batch size
     batch_size = mol_array.size(0)
-    padding = torch.full([batch_size, 1, 5], -1,
-                         dtype=torch.long,
-                         device=torch.device('cuda:0'))
+    padding = torch.full([batch_size, 1, 5], -1, dtype=torch.long, device=torch.device('cuda:0'))
     actions = torch.cat([mol_array, padding], dim=1)
     actions = actions[mol_ids, step_ids + num_scaffold_steps[mol_ids], :]
 
@@ -337,14 +279,10 @@ def pack_decoder(mol_array: torch.Tensor,
     I_MASK, I_APPEND, I_CONNECT, I_END = 0, 0, 1, 2
 
     def _full(_x):
-        """A helper class to create a constant matrix
-        with the same type and length as actions with a given content"""
-        return torch.full([actions.size(0), ],
-                          _x,
-                          dtype=torch.long,
-                          device=mol_array.device)
+        """A helper class to create a constant matrix with the same type and length as actions with a given content"""
+        return torch.full([actions.size(0), ], _x, dtype=torch.long, device=mol_array.device)
 
-    action_type = torch.where(
+    action_type = torch.where(  # todo: too long
         # if the atom type is defined for step i
         actions[:, I_ATOM_TYPE].ge(I_MASK),
         # the the action type is set to 'append'
@@ -358,75 +296,44 @@ def pack_decoder(mol_array: torch.Tensor,
             _full(I_END)))
 
     # 2. THE TYPE OF ATOM ADDED AT EACH 'APPEND' STEP
-    action_atom_type = torch.where(actions[:, I_ATOM_TYPE].ge(I_MASK),
-                                   actions[:, I_ATOM_TYPE],
-                                   _full(I_MASK))
+    action_atom_type = torch.where(actions[:, I_ATOM_TYPE].ge(I_MASK), actions[:, I_ATOM_TYPE], _full(I_MASK))
 
     # 3. THE BOND TYPE AT EACH STEP
-    action_bond_type = torch.where(actions[:, I_BOND_TYPE].ge(0),
-                                   actions[:, I_BOND_TYPE],
-                                   _full(I_MASK))
+    action_bond_type = torch.where(actions[:, I_BOND_TYPE].ge(0), actions[:, I_BOND_TYPE], _full(I_MASK))
 
     # 4. THE LOCATION TO APPEND AT EACH STEP
-    append_loc = torch.where(action_type.eq(0),
-                             actions[:, I_BEGIN_IDS] + num_atoms_cumsum,
-                             _full(I_MASK))
+    append_loc = torch.where(action_type.eq(0), actions[:, I_BEGIN_IDS] + num_atoms_cumsum, _full(I_MASK))
 
     # 5. THE LOCATION TO CONNECT AT EACH STEP
-    connect_loc = torch.where(action_type.eq(1),
-                              actions[:, I_END_IDS] + num_atoms_cumsum,
-                              _full(I_MASK))
+    connect_loc = torch.where(action_type.eq(1), actions[:, I_END_IDS] + num_atoms_cumsum, _full(I_MASK))
 
     # Stack everything together
     # size: [-1, 5]
     # 5 = action_type, atom_type, bond_type, append_loc, connect_loc
-    actions = torch.stack([action_type,
-                           action_atom_type,
-                           action_bond_type,
-                           append_loc,
-                           connect_loc], dim=-1)
+    actions = torch.stack([action_type, action_atom_type, action_bond_type, append_loc, connect_loc], dim=-1)
 
-    return (
-        # 1. structure information:
-        # atom (node) type and bond (edge) information
-        atom_types,
-        is_scaffold,
-        bond_info,
-        last_append_mask,
-        # 2. action to carry out at each step
-        actions,
-        # 3. indices
-        mol_ids,
-        step_ids,
-        block_ids,
-        atom_ids)
+    # 1. structure information: atom_types, is_scaffold, bond_info, last_append_mask
+    # 2. action to carry out at each step: actions
+    # 3. indices: mol_ids, step_ids, block_ids, atom_ids
+    return atom_types, is_scaffold, bond_info, last_append_mask, actions, mol_ids, step_ids, block_ids, atom_ids
 
 
-def pack_encoder(mol_array,
-                 ms=MoleculeSpec.get_default()) -> t.Tuple[torch.Tensor]:
-    """
-    Pack and expand information in mol_array in order to feed into graph
-    encoders (The encoder version of the function `pack()`)
+def pack_encoder(mol_array, ms=MoleculeSpec.get_default()):
+    """Pack and expand information in mol_array in order to feed into graph encoders
+    (The encoder version of the function `pack()`)
 
     Args:
-        mol_array (torch.Tensor):
-            input molecule array
-            size [batch_size, max_num_steps, 5], type: `torch.long`
-            where 5 = atom_type + begin_ids + end_ids + bond_type
+        mol_array (torch.Tensor): input molecule array
+                                  size [batch_size, max_num_steps, 5], type: `torch.long`
+                                  where 5 = atom_type + begin_ids + end_ids + bond_type
         ms (mol_spec.MoleculeSpec)
 
     Returns:
-        atom_types (torch.Tensor):
-            Atom type information packed into a single vector, type: torch.long
-        is_scaffold (torch.Tensor):
-            Whether the corresponding atom is contained in the scaffold,
-            type: torch.long
-        bond_info (torch.Tensor):
-            Bond type information packed into a single matrix
-            type: torch.long, shape: [-1, 3],
-            3 = begin_ids + end_ids + bond_type
-        block_ids, atom_ids (torch.Tensor):
-            type: torch.long, shape: [num_total_atoms, ]
+        atom_types (torch.Tensor): Atom type information packed into a single vector, type: torch.long
+        is_scaffold (torch.Tensor): Whether the corresponding atom is contained in the scaffold, type: torch.long
+        bond_info (torch.Tensor): Bond type information packed into a single matrix
+                                  type: torch.long, shape: [-1, 3], 3 = begin_ids + end_ids + bond_type
+        block_ids, atom_ids (torch.Tensor): type: torch.long, shape: [num_total_atoms, ]
     """
 
     # get device info
@@ -484,58 +391,34 @@ def pack_encoder(mol_array,
     bond_info = torch.cat([bond_info, bond_info[:, [1, 0, 2]]], )
 
     # labels for artificial bonds and atoms
-    (I_BOND_REMOTE_2,
-     I_BOND_REMOTE_3,
-     I_BOND_ATOM_SELF) = range(ms.num_bond_types, ms.num_bond_types + 3)
+    I_BOND_REMOTE_2, I_BOND_REMOTE_3, I_BOND_ATOM_SELF = range(ms.num_bond_types, ms.num_bond_types + 3)
 
     # artificial bond type: remote connection
     indices = bond_info[:, :2].cpu().numpy()
     size = atom_types.size(0)
     d_indices_2, d_indices_3 = get_remote_connection(indices,
                                                      size)
-    # pylint: disable=not-callable
-    d_indices_2, d_indices_3 = (
-        torch.tensor(d_indices_2,
-                     dtype=torch.long,
-                     device=device),
-        torch.tensor(d_indices_3,
-                     dtype=torch.long,
-                     device=device)
-    )
-    bond_type = torch.full([d_indices_2.size(0), 1],
-                           I_BOND_REMOTE_2,
-                           dtype=torch.long,
-                           device=device)
+    d_indices_2 = torch.tensor(d_indices_2, dtype=torch.long, device=device)
+    d_indices_3 = torch.tensor(d_indices_3, dtype=torch.long, device=device)
+
+    bond_type = torch.full([d_indices_2.size(0), 1], I_BOND_REMOTE_2, dtype=torch.long, device=device)
     bond_info_remote_2 = torch.cat([d_indices_2, bond_type], dim=-1)
-    bond_type = torch.full([d_indices_3.size(0), 1],
-                           I_BOND_REMOTE_3,
-                           dtype=torch.long,
-                           device=device)
+    bond_type = torch.full([d_indices_3.size(0), 1], I_BOND_REMOTE_3, dtype=torch.long, device=device)
     bond_info_remote_3 = torch.cat([d_indices_3, bond_type], dim=-1)
-    bond_info = torch.cat([bond_info,
-                           bond_info_remote_2,
-                           bond_info_remote_3], dim=0)
+    bond_info = torch.cat([bond_info, bond_info_remote_2, bond_info_remote_3], dim=0)
 
     # artificial bond type: self connection
-    begin_ids = end_ids = torch.arange(atom_types.size(0),
-                                       dtype=torch.long,
-                                       device=atom_types.device)
+    begin_ids = end_ids = torch.arange(atom_types.size(0), dtype=torch.long, device=atom_types.device)
     bond_type = torch.full_like(end_ids, I_BOND_ATOM_SELF)
     bond_info_self = torch.stack([begin_ids, end_ids, bond_type], dim=-1)
     bond_info = torch.cat([bond_info, bond_info_self], dim=0)
 
-    return (atom_types,
-            is_scaffold,
-            bond_info,
-            last_append_mask,
-            block_ids,
-            atom_ids)
+    return atom_types, is_scaffold, bond_info, last_append_mask, block_ids, atom_ids
 
 
 def get_remote_connection(indices: np.ndarray,
                           size: int) -> t.Tuple[np.ndarray, ...]:
-    """
-    Get the remote connections in graph
+    """Get the remote connections in graph
 
     Args:
         indices (np.ndarray): The indices of the sparse matrix, size: [-1, 2]
@@ -544,10 +427,9 @@ def get_remote_connection(indices: np.ndarray,
     Returns:
         d_indices_2, d_indices_3 (np.ndarray): Remote connections
     """
-
-    row, col, data = (indices[:, 0],
-                      indices[:, 1],
-                      np.ones([indices.shape[0], ], dtype=np.float32))
+    row = indices[:, 0]
+    col = indices[:, 1]
+    data = np.ones([indices.shape[0], ], dtype=np.float32)
     adj = sparse.coo_matrix((data, (row, col)), shape=(size, size))
 
     d = adj * adj

@@ -4,17 +4,14 @@ Utility functions for analysing side chain distribution
 # region
 import sys
 # pylint: disable=unused-import
-import time
 import typing as t
 
 import multiprocess as mp
 import networkx as nx
-from networkx.algorithms.components import connected_components
 import numpy as np
 import pandas as pd
+from networkx.algorithms.components import connected_components
 from rdkit import Chem
-# endregion
-
 
 # SMARTS patterns for hydrogen bond donor and acceptors
 # Adopted from the tutorials given by Daylight
@@ -26,10 +23,8 @@ HBD_QUERY = Chem.MolFromSmarts(HBD)
 
 class NoMatchException(Exception):
     """Cannot perform substructure match"""
-    def __init__(self,
-                 mol_smiles: str,
-                 scaffold_smiles: str,
-                 *args, **kwargs):
+
+    def __init__(self, mol_smiles, scaffold_smiles, *args, **kwargs):
         """The initializer"""
         super(NoMatchException, self).__init__(*args, **kwargs)
         self.mol_smiles = mol_smiles
@@ -41,26 +36,20 @@ class NoSubstitutionException(Exception):
     pass
 
 
-def map_scaffold(mol: Chem.Mol, scaffold: Chem.Mol) -> t.Tuple[int]:
+def map_scaffold(mol, scaffold):
     """
-    Get the location of a certain scaffold inside a molecule. The tuple retruned
-    records the mapping from atom indices in scaffold `scaffold` to atom indices
-    in molecule `mol`. Specifically, For atom `i` in scaffold `scaffold`,
-    the value `return_val[i]` represents the index of the atom inside the molecule
-    `mol`.
+    Get the location of a certain scaffold inside a molecule. The tuple returned records the mapping from atom indices
+    in scaffold `scaffold` to atom indices in molecule `mol`. Specifically, For atom `i` in scaffold `scaffold`,
+    the value `return_val[i]` represents the index of the atom inside the molecule `mol`.
     """
     match = mol.GetSubstructMatch(scaffold)
     if not match:
-        raise NoMatchException(Chem.MolToSmiles(mol),
-                               Chem.MolToSmiles(scaffold))
+        raise NoMatchException(mol_smiles=Chem.MolToSmiles(mol), scaffold_smiles=Chem.MolToSmiles(scaffold))
     return match
 
 
-def map_query(mol: Chem.Mol, query: Chem.Mol) -> t.Tuple[int]:
-    """
-    Get the set of indices of all atoms in molecule `mol` matching the query
-    `query`
-    """
+def map_query(mol, query):
+    """Get the set of indices of all atoms in molecule `mol` matching the query `query` """
     match = set()
     for match_i in mol.GetSubstructMatches(query):
         match = match | set(match_i)
@@ -68,13 +57,10 @@ def map_query(mol: Chem.Mol, query: Chem.Mol) -> t.Tuple[int]:
     return match
 
 
-def get_scaffold_anchors(mol: Chem.Mol,
-                         scaffold_ids: t.Tuple[int]
-                         ) -> t.Dict[int, int]:
+def get_scaffold_anchors(mol, scaffold_ids):
     """
-    Get the indices of atom directly connected with the scaffold. The
-    dictionary returned maps the indices of directly connected atoms in the
-    molecules to the index of the anchor atom in the scaffold
+    Get the indices of atom directly connected with the scaffold. The dictionary returned maps the indices of directly
+    connected atoms in the molecules to the index of the anchor atom in the scaffold
     """
     anchors = {}
     for scaffold_id, scaffold_id_in_mol in enumerate(scaffold_ids):
@@ -88,42 +74,31 @@ def get_scaffold_anchors(mol: Chem.Mol,
     return anchors
 
 
-def convert_to_graph(mol: Chem.Mol,
-                     scaffold_ids: t.Tuple[int],
-                     anchors: t.Dict[int, int],
-                     hba_ids: t.Tuple[int],
-                     hbd_ids: t.Tuple[int]) -> nx.Graph:
-    """
-    Convert `Chem.Mol` object to `nx.Graph` object
+def convert_to_graph(mol, scaffold_ids, anchors, hba_ids, hbd_ids):
+    """Convert `Chem.Mol` object to `nx.Graph` object
 
     Args:
-        mol (Chem.Mol):
-            The molecule object to be converted
-        scaffold_ids (t.Tuple[int]):
-            The atom that corresponds to scaffolds
-        anchors (t.Dict[int, int]):
-            The mapping from atom in the molecule to atom in scaffold where it
-            is attached to
-        hba_ids (t.Tuple[int]):
-            The atoms corresponding to hydrogen acceptors
-        hbd_ids (t.Tuple[int]):
-            The atoms corresponding to hydrogen donnors
+        mol (Chem.Mol): The molecule object to be converted
+        scaffold_ids (t.Tuple[int]): The atom that corresponds to scaffolds
+        anchors (t.Dict[int, int]): The mapping from atom in the molecule to atom in scaffold where it is attached to
+        hba_ids (t.Tuple[int]): The atoms corresponding to hydrogen acceptors
+        hbd_ids (t.Tuple[int]): The atoms corresponding to hydrogen donnors
 
     Returns:
-        nx.Graph:
-            The graph converted
+        nx.Graph: The graph converted
     """
     # Initialize graph
     graph = nx.Graph()
+
     # Add nodes
     nodes = range(mol.GetNumAtoms())
     graph.add_nodes_from(nodes)
+
     # Add edges
     bond: Chem.Bond
-    edges = [(bond.GetBeginAtomIdx(),
-              bond.GetEndAtomIdx())
-             for bond in mol.GetBonds()]
+    edges = [(bond.GetBeginAtomIdx(), bond.GetEndAtomIdx()) for bond in mol.GetBonds()]
     graph.add_edges_from(edges)
+
     # Attach properties to nodes
     for node_id in nodes:
         atom_i: Chem.Atom = mol.GetAtomWithIdx(node_id)
@@ -140,75 +115,73 @@ def convert_to_graph(mol: Chem.Mol,
     return graph
 
 
-def propcess_graph(graph: nx.Graph) -> t.Tuple[pd.DataFrame, t.Dict[str, int]]:
+def process_graph(graph):
     """
-    Process information in graph, returning a table (table data + column names)
-    as a result. Each row of the table represents a side-chain, and each column
-    records one property of the side-chain, such as the number of heavy atoms it
-    contains, whether it is a hydrogen bond donor or acceptor, ect.
+    Process information in graph, returning a table (table data + column names) as a result. Each row of the table
+    represents a side-chain, and each column records one property of the side-chain, such as the number of heavy atoms
+    it contains, whether it is a hydrogen bond donor or acceptor, ect.
     """
     scaffold_nodes = []
     for node_id, node in graph.nodes.items():
         if 'is_scaffold' in node:
             scaffold_nodes.append(node_id)
+
     # Remove scaffold
     graph.remove_nodes_from(scaffold_nodes)
+
     # Initialize data
     graph_info = []
+
     # Iterate through disconnected subgraphs
     for subgraph in connected_components(graph):
         attached_atom_id = None
-        num_heavy_atoms, is_hbd, is_hba = 0, False, False
+        num_heavy_atoms = 0
+        is_hbd = False
+        is_hba = False
+
         for node_id in subgraph:
             node = graph.nodes[node_id]
             if attached_atom_id is None and 'anchor' in node:
                 attached_atom_id = node['anchor']
+
             if not is_hba and 'is_hba' in node:
                 is_hba = True
+
             if not is_hbd and 'is_hbd' in node:
                 is_hbd = True
             num_heavy_atoms += 1
+
         if attached_atom_id is None:
             raise ValueError
+
         is_hbd_and_hba = is_hbd and is_hba
-        graph_info.append([attached_atom_id,
-                           num_heavy_atoms,
-                           int(is_hbd),
-                           int(is_hba),
-                           int(is_hbd_and_hba)])
+        graph_info.append([attached_atom_id, num_heavy_atoms, int(is_hbd), int(is_hba), int(is_hbd_and_hba)])
+
     # Convert graph_info to dataframe
     if not graph_info:
         raise NoSubstitutionException()
+
     graph_info = np.array(graph_info, dtype=np.int32)
-    col_names = ['attached_atom_id',
-                 'num_heavy_atoms',
-                 'is_hbd',
-                 'is_hba',
-                 'is_hbd_and_hba']
-    col_names = {key:val for val, key in enumerate(col_names)}
+    col_names = ['attached_atom_id', 'num_heavy_atoms', 'is_hbd', 'is_hba', 'is_hbd_and_hba']
+    col_names = {key: val for val, key in enumerate(col_names)}
     return graph_info, col_names
 
 
-def process_mol(mol: Chem.Mol,
-                scaffold: Chem.Mol
-                ) -> t.Tuple[pd.DataFrame, t.Dict[str, int]]:
+def process_mol(mol, scaffold):
     """
-    Process molecule, returning a table (table data + column names)
-    as a result. Each row of the table represents a side-chain, and each column
-    records one property of the side-chain, such as the number of heavy atoms it
-    contains, whether it is a hydrogen bond donor or acceptor, ect.
+    Process molecule, returning a table (table data + column names) as a result. Each row of the table represents a
+    side-chain, and each column records one property of the side-chain, such as the number of heavy atoms it contains,
+    whether it is a hydrogen bond donor or acceptor, ect.
     """
     scaffold_map = map_scaffold(mol, scaffold)
     hba_ids, hbd_ids = map_query(mol, HBA_QUERY), map_query(mol, HBD_QUERY)
     anchors = get_scaffold_anchors(mol, scaffold_map)
     graph = convert_to_graph(mol, scaffold_map, anchors, hba_ids, hbd_ids)
-    results = propcess_graph(graph)
+    results = process_graph(graph)
     return results
 
 
-def process_mol_set(smiles_loc: str,
-                    output_loc: str,
-                    scaffold_smiles: str):
+def process_mol_set(smiles_loc, output_loc, scaffold_smiles):
     """Process a list of molecules
 
     Args:
@@ -224,18 +197,16 @@ def process_mol_set(smiles_loc: str,
     if scaffold is None:
         raise ValueError(f'Invalid SMILES for scaffold: {scaffold_smiles}')
 
-    # pylint: disable=no-member
     pool = mp.Pool(10)
 
     # The generator
-    def _generate() -> t.Generator[str, None, None]:
-        # pylint: disable=invalid-name
+    def _generate():
         with open(smiles_loc) as f:
             for line in f:
                 yield line.rstrip()
 
     # The worker
-    def _worker(_smiles: str) -> t.Optional[pd.DataFrame]:
+    def _worker(_smiles):
         try:
             mol = Chem.MolFromSmiles(_smiles)
         except (ValueError, RuntimeError):
@@ -250,43 +221,37 @@ def process_mol_set(smiles_loc: str,
 
     # Initialize the result table
     scaffold_size = scaffold.GetNumHeavyAtoms()
-    col_names = ['num_subs',
-                 'avg_size',
-                 'num_hba',
-                 'num_hbd',
-                 'num_hbd_and_hba']
+    col_names = ['num_subs', 'avg_size', 'num_hba', 'num_hbd', 'num_hbd_and_hba']
     results = np.zeros((scaffold_size, len(col_names)), dtype=np.float32)
-    col_names = {key:val for val, key in enumerate(col_names)}
+    col_names = {key: val for val, key in enumerate(col_names)}
 
     # The iteration
-    # pylint: disable=invalid-name
     g = _generate()
     for result_i in pool.imap(_worker, g, chunksize=100):
         if result_i is None:
             continue
+
         graph_info_i, col_names_i = result_i
-        # Substuted locations
+
+        # Substitute locations
         loc = graph_info_i[:, col_names_i['attached_atom_id']]
+
         # Update avg_size
         mu_old = results[loc, col_names['avg_size']]
         mu_new = graph_info_i[:, col_names_i['num_heavy_atoms']]
         n_old = results[loc, col_names['num_subs']]
-        results[loc, col_names['avg_size']] = \
-            n_old / (n_old + 1) * mu_old + mu_new / (n_old + 1)
+
+        results[loc, col_names['avg_size']] = n_old / (n_old + 1) * mu_old + mu_new / (n_old + 1)
+
         # Update other variables
         results[loc, col_names['num_subs']] += 1
-        results[loc, col_names['num_hba']] \
-            += graph_info_i[:, col_names_i['is_hba']]
-        results[loc, col_names['num_hbd']] \
-            += graph_info_i[:, col_names_i['is_hbd']]
-        results[loc, col_names['num_hbd_and_hba']] \
-            += graph_info_i[:, col_names_i['is_hbd_and_hba']]
+        results[loc, col_names['num_hba']] += graph_info_i[:, col_names_i['is_hba']]
+        results[loc, col_names['num_hbd']] += graph_info_i[:, col_names_i['is_hbd']]
+        results[loc, col_names['num_hbd_and_hba']] += graph_info_i[:, col_names_i['is_hbd_and_hba']]
 
     results = pd.DataFrame(results, columns=list(col_names))
     results.to_csv(output_loc)
 
 
 if __name__ == "__main__":
-    process_mol_set(sys.argv[1],
-                    sys.argv[2],
-                    sys.argv[3])
+    process_mol_set(sys.argv[1], sys.argv[2], sys.argv[3])

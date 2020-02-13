@@ -1,5 +1,4 @@
-"""
-The evaluation system
+"""The evaluation system
 
 A system for model evaluation based on zerorpc. The system is composed of three
 basic components:
@@ -16,8 +15,6 @@ When a worker finish the execution of a task, the result is forwarded to the
 collector, and it is the collector's responsibility to store the result of the
 task.
 """
-# region
-from functools import reduce
 import gc
 import gzip
 import io
@@ -29,29 +26,26 @@ import sys
 import typing as t
 
 import cupy as cp
-from cupyx.scipy.sparse import csr_matrix as csr_matrix_cu
 import multiprocess as mp
 import numpy as np
-from scipy.sparse import csr_matrix
 import torch
-from torch import nn
 import zerorpc
+from cupyx.scipy.sparse import csr_matrix as csr_matrix_cu
 from rdkit import Chem
 from rdkit import RDLogger
 from rdkit.Chem import AllChem
 from rdkit.Chem import Descriptors
 from rdkit.Chem import QED
+from scipy.sparse import csr_matrix
+from torch import nn
 
 from data_utils import get_array_from_mol
 from data_utils import get_mol_from_array
 from deep_scaffold import DeepScaffold
-# endregion
 
 
-def build_model(ckpt_loc: str) -> DeepScaffold:
-    """
-    Building model from checkpoint file
-    """
+def build_model(ckpt_loc):
+    """Building model from checkpoint file"""
     # Configure default parameters
     config = {
         "num_atom_embedding": 16,
@@ -63,58 +57,54 @@ def build_model(ckpt_loc: str) -> DeepScaffold:
         "efficient": False,
         "activation": 'elu'
     }
+
     # Local configuration file
-    # pylint: disable=invalid-name
     with open(os.path.join(ckpt_loc, 'config.json')) as f:
         config_update = json.load(f)
     # Update default configuration with config
+
     for key in config_update:
         if key in config:
             config[key] = config_update[key]
+
     # Build model
     mdl = DeepScaffold(**config)
+
     # Load checkpoint
     mdl = nn.DataParallel(mdl)
     mdl.load_state_dict(torch.load(os.path.join(ckpt_loc, 'mdl.ckpt')))
+
     # Unwrap from nn.DataParallel, move to GPU
     mdl = mdl.module.cuda(0).eval()
+
     return mdl
 
 
-def sample(mdl: DeepScaffold,
-           scaffold_smi: str,
-           num_samples: int
-           ) -> t.Tuple[t.List[t.Union[str, None]], float, float]:
-    """
-    Generate `num_samples` samples from the model `mdl` based on a given
-    scaffold with SMILES `scaffold_smi`.
+def sample(mdl, scaffold_smi, num_samples):
+    """Generate `num_samples` samples from the model `mdl` based on a given scaffold with SMILES `scaffold_smi`.
 
     Args:
-        mdl (DeepScaffold):
-            The scaffold-based molecule generative model
-        scaffold_smi (str):
-            The SMILES string of the given scaffold
-        num_samples (int):
-            The number of samples to generate
+        mdl (DeepScaffold): The scaffold-based molecule generative model
+        scaffold_smi (str): The SMILES string of the given scaffold
+        num_samples (int): The number of samples to generate
 
     Returns:
-        t.Tuple[t.List[t.Union[str, None]], float, float]:
-            The generated molecules. Molecules that does not satisfy the
-            validity requirements are returned as `None`
+        t.Tuple[t.List[t.Union[str, None]], float, float]: The generated molecules. Molecules that does not satisfy the
+                                                           validity requirements are returned as `None`
     """
-    # pylint: disable=invalid-name
     lg = RDLogger.logger()
     lg.setLevel(RDLogger.CRITICAL)
 
     # Convert SMILES to molecule
     scaffold = Chem.MolFromSmiles(scaffold_smi)
+
     # Convert molecule to numpy array
     # shape: 1, ..., 5
     scaffold_array: np.ndarray
-    scaffold_array, _ = \
-        get_array_from_mol(mol=scaffold,
-                           scaffold_nodes=range(scaffold.GetNumHeavyAtoms()),
-                           nh_nodes=[], np_nodes=[], k=1, p=1.0)
+    scaffold_array, _ = get_array_from_mol(mol=scaffold,
+                                           scaffold_nodes=range(scaffold.GetNumHeavyAtoms()),
+                                           nh_nodes=[], np_nodes=[], k=1, p=1.0)
+
     # Convert numpy array to torch tensor
     # shape: 1, ..., 5
     scaffold_tensor: torch.Tensor
@@ -145,9 +135,11 @@ def sample(mdl: DeepScaffold,
         except ValueError:
             # If the molecule can not be converted to SMILES, return None
             return None
+
         # If the output SMILES is None, return None
         if _smiles is None:
             return None
+
         # Make sure that the SMILES can be convert back to molecule
         try:
             _mol = Chem.MolFromSmiles(_smiles)
@@ -155,10 +147,12 @@ def sample(mdl: DeepScaffold,
             # If there are any error encountered during the process,
             # return None
             return None
+
         # If the output molecule object is None, return None
         if _mol is None:
             return None
         return _smiles
+
     smiles_list = list(map(_to_smiles, mol_list))
 
     # Get the validity statistics
@@ -172,73 +166,58 @@ def sample(mdl: DeepScaffold,
     return smiles_list, percent_valid, percent_unique
 
 
-def sample_batch(mdl: DeepScaffold,
-                 scaffold_smi: str,
-                 num_samples: int,
-                 batch_size: int) -> t.List[str]:
-    """Sample (a relatively large amount of) molecules by splitting the total
-    number into smaller batches
+def sample_batch(mdl, scaffold_smi, num_samples, batch_size):
+    """Sample (a relatively large amount of) molecules by splitting the total number into smaller batches
 
     Args:
-        mdl (DeepScaffold):
-            The scaffold-based molecule generative model
-        scaffold_smi (str):
-            The SMILES string of the given scaffold
-        num_samples (int):
-            The number of samples to generate
-        batch_size (int):
-            The number of samples to generate at each time
+        mdl (DeepScaffold): The scaffold-based molecule generative model
+        scaffold_smi (str): The SMILES string of the given scaffold
+        num_samples (int): The number of samples to generate
+        batch_size (int): The number of samples to generate at each time
 
     Returns:
-        t.List[str]:
-            The list of all molecules sampled
+        t.List[str]: The list of all molecules sampled
     """
     sample_list = []
     while len(sample_list) < num_samples:
         new_samples, _, _ = sample(mdl, scaffold_smi, batch_size)
+
         # Filter None molecules
         new_samples = list(filter(lambda _x: _x is not None, new_samples))
+
         # Append to sample list
         sample_list = sample_list + new_samples
     sample_list = sample_list[:num_samples]
     return sample_list
 
 
-def get_fingerprints(smiles_list: t.List[str],
-                     mapper: t.Callable) -> csr_matrix:
-    """
-    Getting the fingerprint for a list of molecules
+def get_fingerprints(smiles_list, mapper):
+    """Getting the fingerprint for a list of molecules
 
     Args:
-        smiles_list (t.List[str]):
-            The list of molecule to get fingerprint from
-        mapper (t.Callable):
-            The mapping function. Could be map, pool.map or pool.imap
+        smiles_list (t.List[str]): The list of molecule to get fingerprint from
+        mapper (t.Callable): The mapping function. Could be map, pool.map or pool.imap
 
     Returns:
-        csr_matrix:
-            The fingerprint information of the molecule stored inside a sprase
-            matrix. dtype: np.float32, shape: [num_samples, 1024]
+        csr_matrix: The fingerprint information of the molecule stored inside a sprase matrix.
+                    dtype: np.float32, shape: [num_samples, 1024]
     """
     # Defining the length of the fingerprint
     fp_length = 1024
 
     def get_on_bits(smiles: str) -> t.List[int]:
-        """
-        Function for getting on-bits from smiles string
+        """Function for getting on-bits from smiles string
 
         Args:
-            smiles (str):
-                The smiles string of the input molecule
+            smiles (str): The smiles string of the input molecule
 
         Returns:
-            t.List[int]:
-                The location of the on-bits
+            t.List[int]: The location of the on-bits
         """
         mol = Chem.MolFromSmiles(smiles)  # Parse SMILES string
         assert mol is not None
+
         # Get fingerprint
-        # pylint: disable=invalid-name
         fp = AllChem.GetMorganFingerprintAsBitVect(mol, 2, fp_length)
         on_bits = list(fp.GetOnBits())  # Store on bits only
         return on_bits
@@ -262,7 +241,6 @@ def get_fingerprints(smiles_list: t.List[str],
     row, col = reduce_fn(mapped)
 
     # Wrap `row` and `col` into a sparse matrix
-    # pylint: disable=invalid-name
     d = np.ones_like(row, dtype=np.float32)
     shape = (len(smiles_list), fp_length)
     fp_mat = csr_matrix((d, (row, col)), shape=shape, dtype=np.float32)
@@ -270,46 +248,35 @@ def get_fingerprints(smiles_list: t.List[str],
     return fp_mat
 
 
-def get_tanimoto(fp_1: csr_matrix_cu,
-                 fp_2: csr_matrix_cu) -> cp.ndarray:
-    """
-    Get the matrix of tanimoto similarity between two molecule sets
+def get_tanimoto(fp_1, fp_2):
+    """Get the matrix of tanimoto similarity between two molecule sets
 
     Args:
         fp_1 (csr_matrix_cu)
-        fp_2 (csr_matrix_cu):
-            The two sets of molecules represented as sparse fingerprint
-            matrices (in gpu)
+        fp_2 (csr_matrix_cu): The two sets of molecules represented as sparse fingerprint
+                                                    matrices (in gpu)
 
     Returns:
-        cp.ndarray:
-            The similarity matrix calculated
+        cp.ndarray: The similarity matrix calculated
     """
     # Calculate the dot product
     dot_prod: cp.ndarray = fp_1.dot(fp_2.T).A
+
     # Calculate the tanimoto similarity
     sim_mat: cp.ndarray = dot_prod / (fp_1.sum(-1) + fp_2.sum(-1).T - dot_prod)
     return sim_mat
 
 
-def get_mmd(smiles_list_1: t.List[str],
-            smiles_list_2: t.List[str],
-            mapper: t.Callable
-            ) -> t.Tuple[float, float, float]:
-    """
-    Calculate the MMD between two molecule sets
+def get_mmd(smiles_list_1, smiles_list_2, mapper):
+    """Calculate the MMD between two molecule sets
 
     Args:
         smiles_list_1 (t.List[str])
-        smiles_list_2 (t.List[str]):
-            The two molecule sets represented as SMILES lists
-        mapper (t.Callable):
-            The mapper, can be map, pool.map or pool.imap
+        smiles_list_2 (t.List[str]): The two molecule sets represented as SMILES lists
+        mapper (t.Callable): The mapper, can be map, pool.map or pool.imap
 
     Returns:
-        t.Tuple[float, float, float]:
-            The diversity of the two molecule sets, as well as the MMD
-            calculated
+        t.Tuple[float, float, float]: The diversity of the two molecule sets, as well as the MMD calculated
     """
     # Get the number of molecules
     size_1, size_2 = len(smiles_list_1), len(smiles_list_2)
@@ -335,22 +302,17 @@ def get_mmd(smiles_list_1: t.List[str],
     return diversity_1.item(), diversity_2.item(), mmd.item()
 
 
-def get_properties(smiles_list: t.List[str],
-                   mapper: t.Callable[[t.Callable, t.List], t.List]
-                   ) -> t.List[t.Tuple[float, float, float]]:
-    """
-    Get the properties of a give list of molecules
+def get_properties(smiles_list, mapper):
+    """Get the properties of a give list of molecules
 
     Args:
-        smiles_list (t.List[str]):
-            The list of molecule to process (represented as molecular SMILES)
-        mapper (t.Callable):
-            The mapping function. Could be map, pool.map or pool.imap
+        smiles_list (t.List[str]): The list of molecule to process (represented as molecular SMILES)
+        mapper (t.Callable): The mapping function. Could be map, pool.map or pool.imap
 
     Returns:
-        t.List[t.Tuple[float, float, float]]:
-            The calculated properties (molecular weight, logp and QED)
+        t.List[t.Tuple[float, float, float]]: The calculated properties (molecular weight, logp and QED)
     """
+
     def get_mol_props(smiles):
         """Get the molecular properties of a single molecule"""
         mol = Chem.MolFromSmiles(smiles)
@@ -358,34 +320,27 @@ def get_properties(smiles_list: t.List[str],
         mol_wt = Descriptors.MolWt(mol)
         log_p = Descriptors.MolLogP(mol)
         qed = QED.qed(mol)
-        assert (mol_wt is not None and
-                log_p is not None
-                and qed is not None)
+        assert mol_wt is not None and log_p is not None and qed is not None
+
         return mol_wt, log_p, qed
 
     prop_list = mapper(get_mol_props, smiles_list)
     return prop_list
 
 
-def get_prop_stat(smiles_list: t.List[str],
-                  mapper: t.Callable
-                  ) -> t.Tuple[np.ndarray, ...]:
-    """
-    Get the statistics for two molecule sets based on several
-    molecular properties
+def get_prop_stat(smiles_list, mapper):
+    """Get the statistics for two molecule sets based on several molecular properties
 
     Args:
-        smiles_list (t.List[str])
-            Input molecule sets
-        mapper (t.Callable):
-            The mapper, can be map, pool.map or pool.imap
+        smiles_list (t.List[str]): Input molecule sets
+        mapper (t.Callable): The mapper, can be map, pool.map or pool.imap
 
     Returns:
-        t.Tuple[np.ndarray, ...]:
-            The calculated statistics
+        t.Tuple[np.ndarray, ...]: The calculated statistics
     """
     # Get the sample size
     sample_size = len(smiles_list)
+
     # Get molecular properties for each set
     prop_list: t.List[t.Tuple[float, ...]]
     prop_list = get_properties(smiles_list, mapper)
@@ -405,38 +360,31 @@ def get_prop_stat(smiles_list: t.List[str],
     return prop_stat
 
 
-# pylint: disable=too-few-public-methods
 class Dispatcher:
     """Task dispatcher"""
-    def __init__(self,
-                 scaffold_loc: str,
-                 molecule_loc: str,
-                 scaffold_network_loc: str):
+
+    def __init__(self, scaffold_loc, molecule_loc, scaffold_network_loc):
         """Constructor
 
         Args:
-            scaffold_loc (str):
-                The location of scaffold SMILES file
-            molecule_loc (str):
-                The location of the molecule SMILES file
-            scaffold_network_loc (str):
-                The location of the scaffold-molecule network file
+            scaffold_loc (str): The location of scaffold SMILES file
+            molecule_loc (str): The location of the molecule SMILES file
+            scaffold_network_loc (str): The location of the scaffold-molecule network file
         """
         # Load SMILES list
         self.scaffold_list = []
-        # pylint: disable=invalid-name
+
         with open(scaffold_loc) as f:
             for line in f:
                 self.scaffold_list.append(line.rstrip().split('\t')[0])
         self.molecule_list = []
-        # pylint: disable=invalid-name
+
         with open(molecule_loc) as f:
             for line in f:
                 self.molecule_list.append(line.rstrip())
 
         # Load scaffold-molecule network
         gc.disable()
-        # pylint: disable=invalid-name
         with gzip.open(scaffold_network_loc, 'rb') as f:
             self.scaffold2molecule: t.Dict[int, t.Set[int]]
             # Compile the mapping between scaffold and molecule
@@ -447,7 +395,7 @@ class Dispatcher:
         random.shuffle(self.task_ids)
         print('Dispatcher ready, waiting request from clients ...')
 
-    def dispatch(self) -> t.Dict:
+    def dispatch(self):
         """Dispatch task to client"""
         if self.task_ids:
             scaffold_id = self.task_ids.pop()
@@ -462,6 +410,7 @@ class Dispatcher:
             }
             print(f'Sending message to client, with task id {scaffold_id}')
             return message
+
         message = {
             'message_type': 'none_message'
         }
@@ -470,14 +419,13 @@ class Dispatcher:
 
 class Collector:
     """Collecting results from the clients"""
-    def __init__(self, save_loc: str):
+
+    def __init__(self, save_loc):
         """Constructor
 
         Args:
-            save_loc (str):
-                The location to save the results
+            save_loc (str): The location to save the results
         """
-        # pylint: disable=invalid-name
         self.f = open(save_loc, 'w')
 
     def __enter__(self):
@@ -485,13 +433,12 @@ class Collector:
         print('Collector ready, waiting request from clients ...')
         return self
 
-    # pylint: disable=redefined-builtin
     def __exit__(self, type, value, traceback):
         """Exit the context"""
         print('Exit collector')
         self.f.__exit__()
 
-    def collect(self, results: t.Dict):
+    def collect(self, results):
         """Save the message to files"""
         result_str = json.dumps(results)
         result_str = result_str.replace('\r', '').replace('\n', '')
@@ -500,25 +447,15 @@ class Collector:
         print('Message receved and saved!')
 
 
-def worker(url_dispatcher: str,
-           url_collector: str,
-           ckpt_loc: str,
-           num_workers: int,
-           num_samples: int):
-    """
-    The worker definition
+def worker(url_dispatcher, url_collector, ckpt_loc, num_workers, num_samples):
+    """The worker definition
 
     Args:
-        url_dispatcher:
-            The url for the dispatcher
-        url_collector:
-            The url for the collector
-        ckpt_loc:
-            The location for the checkpoint
-        num_workers:
-            The number of CPU workers used
-        num_samples:
-            The number of samples
+        url_dispatcher: The url for the dispatcher
+        url_collector: The url for the collector
+        ckpt_loc: The location for the checkpoint
+        num_workers: The number of CPU workers used
+        num_samples: The number of samples
     """
     # Initialize clients
     client_dispatcher = zerorpc.Client()
@@ -532,7 +469,6 @@ def worker(url_dispatcher: str,
     mdl = build_model(ckpt_loc)
 
     # Build multiprocessing pool
-    # pylint: disable=no-member
     pool = mp.Pool(num_workers)
 
     # Create mapper
@@ -545,27 +481,23 @@ def worker(url_dispatcher: str,
             break
         else:
             # Get sample the list of molecules
-            (smiles_sampled,
-             percent_valid,
-             percent_unique) = sample(mdl,
-                                      message['scaffold_smiles'],
-                                      num_samples)
+            smiles_sampled, percent_valid, percent_unique = sample(mdl=mdl,
+                                                                   scaffold_smi=message['scaffold_smiles'],
+                                                                   num_samples=num_samples)
             # Filter out None molecules
             smiles_sampled = list(filter(lambda _x: _x is not None,
                                          smiles_sampled))
+
             # Calculate property statistics
-            prop_stat = np.stack((get_prop_stat(smiles_sampled,
-                                                mapper),
-                                  get_prop_stat(message['molecule_smiles_list'],
-                                                mapper)),
+            prop_stat = np.stack((get_prop_stat(smiles_sampled, mapper),
+                                  get_prop_stat(message['molecule_smiles_list'], mapper)),
                                  axis=0)
             prop_stat = prop_stat.tolist()
+
             # Get diversity and MMD
-            (diversity_1,
-             diversity_2,
-             mmd) = get_mmd(smiles_sampled,
-                            message['molecule_smiles_list'],
-                            mapper)
+            diversity_1, diversity_2, mmd = get_mmd(smiles_list_1=smiles_sampled,
+                                                    smiles_list_2=message['molecule_smiles_list'],
+                                                    mapper=mapper)
             result_message = {
                 'message_type': 'result_message',
                 'scaffold_smiles': message['scaffold_smiles'],
@@ -587,9 +519,9 @@ def main(args):
     """Entrypoint"""
     command = args[0]
     if command == 'dispatch':
-        server = zerorpc.Server(Dispatcher('data_utils/scaffolds.smi',
-                                           'data_utils/molecules.smi',
-                                           'scaffolds_molecules_test.pkl.gz'))
+        server = zerorpc.Server(Dispatcher(scaffold_loc='data_utils/scaffolds.smi',
+                                           molecule_loc='data_utils/molecules.smi',
+                                           scaffold_network_loc='scaffolds_molecules_test.pkl.gz'))
         server.bind("tcp://0.0.0.0:4242")
         server.run()
     elif command == 'collect':
@@ -601,27 +533,31 @@ def main(args):
         url_dispatcher, url_collector = args[1:]
         num_samples = 10000
         num_workers = 5
-        worker(url_dispatcher,
-               url_collector,
-               "ckpt/ckpt-default",
+        worker(url_dispatcher=url_dispatcher,
+               url_collector=url_collector,
+               ckpt_loc="ckpt/ckpt-default",
                num_workers=num_workers,
                num_samples=num_samples)
     elif command == 'sample':
         # Get arguments
         scaffold_smi, output_loc, ckpt_loc = args[1:]
+
         # Build model
         mdl = build_model(ckpt_loc)
+
         # Perform sampling
         num_samples = 100000
         batch_size = 10000
-        sampled_smiles = sample_batch(mdl,
-                                      scaffold_smi,
+        sampled_smiles = sample_batch(mdl=mdl,
+                                      scaffold_smi=scaffold_smi,
                                       num_samples=num_samples,
                                       batch_size=batch_size)
+
         # Save to file
         with open(output_loc, 'w') as f:
             for smiles_i in sampled_smiles:
                 f.write(f'{smiles_i}\n')
+
 
 if __name__ == "__main__":
     main(sys.argv[1:])
