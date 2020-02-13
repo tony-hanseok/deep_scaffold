@@ -13,8 +13,8 @@ __all__ = ['DenseNet']
 
 def _bn_function_factory(bn_module):
     def bn_function(*inputs):
-        concated_features = torch.cat(inputs, -1)
-        bottleneck_output = bn_module(concated_features)
+        concatenated_features = torch.cat(inputs, -1)
+        bottleneck_output = bn_module(concatenated_features)
         return bottleneck_output
 
     return bn_function
