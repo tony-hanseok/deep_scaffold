@@ -34,10 +34,10 @@ class ScaffoldMolDataset(data.Dataset):
         gc.enable()
 
         # All scaffold id
-        self.scaffold_ids: t.List[int] = list(self._scaffold2molecule.keys())
+        self.scaffold_ids = list(self._scaffold2molecule.keys())
 
         # All molecule id
-        self.molecule_ids: t.List[int] = list(self._molecule2scaffold.keys())
+        self.molecule_ids = list(self._molecule2scaffold.keys())
 
     def get_mol_from_scaffold(self, scaffold_id):
         """Get the set of all molecule(ids) containing a given scaffold
