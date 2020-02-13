@@ -156,7 +156,7 @@ class DeepScaffold(nn.Module):
             assert cond_ids is None
             size = torch.Size([num_atoms, num_atoms * self._num_bond_types])
         indices = torch.stack([begin_ids, end_ids], dim=0)
-        val: torch.Tensor = torch.ones([indices.size(-1), ], dtype=torch.float32, device=device)
+        val = torch.ones([indices.size(-1), ], dtype=torch.float32, device=device)
 
         if val.is_cuda:
             adj = torch.cuda.sparse.FloatTensor(indices, val, size)
@@ -398,7 +398,6 @@ class DeepScaffold(nn.Module):
                 last_action_type_non_finished = last_action_type[not_terminated_index]
 
             # expand one step
-            new_action_type: torch.Tensor
             mol_array_new, new_action_type = self._generate_step(mol_array=mol_array_non_finished,
                                                                  last_action_type=last_action_type_non_finished,
                                                                  cond_features=cond_features_non_finished,

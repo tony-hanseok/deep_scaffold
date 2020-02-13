@@ -5,7 +5,6 @@ from torch import nn
 
 from deep_scaffold import ops
 
-
 __all__ = ['BNReLULinear']
 
 

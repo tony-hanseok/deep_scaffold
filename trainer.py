@@ -1,11 +1,11 @@
 """Model trainer"""
 import json
+import math
 import os
 import sys
 import time
 import typing as t
 
-import math
 import torch
 from torch import nn
 from torch import optim

@@ -4,7 +4,6 @@ import gzip
 import io
 import pickle
 import sys
-import typing as t
 
 
 def get_test_dataset(scaffold_network_loc, exclude_ids_loc, output_loc, threshold=(10, 10000)):
@@ -20,7 +19,6 @@ def get_test_dataset(scaffold_network_loc, exclude_ids_loc, output_loc, threshol
     # Load dataset
     gc.disable()
     with gzip.open(scaffold_network_loc, 'rb') as f:
-        scaffold2molecule: t.Dict[int, t.Set[int]]
         # Compile the mapping between scaffold and molecule
         scaffold2molecule, _, _ = pickle.load(io.BufferedReader(f))
     gc.enable()

@@ -6,7 +6,6 @@ from torch import nn
 
 from deep_scaffold.layers.mol_conv import MolConv
 
-
 __all__ = ['CausalMolConvBlock']
 
 

@@ -1,11 +1,9 @@
 """Some basic layers for molecule convolution"""
-import typing as t
 
 import torch
 from torch import nn
 
 from deep_scaffold.layers.utils import BNReLULinear
-
 
 __all__ = ['MolConv']
 

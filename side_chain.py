@@ -1,9 +1,5 @@
-"""
-Utility functions for analysing side chain distribution
-"""
-# region
+"""Utility functions for analysing side chain distribution"""
 import sys
-# pylint: disable=unused-import
 import typing as t
 
 import multiprocess as mp
@@ -64,9 +60,7 @@ def get_scaffold_anchors(mol, scaffold_ids):
     """
     anchors = {}
     for scaffold_id, scaffold_id_in_mol in enumerate(scaffold_ids):
-        scaffold_atom: Chem.Atom
         scaffold_atom = mol.GetAtomWithIdx(scaffold_id_in_mol)
-        neighbor: Chem.Atom
         for neighbor in scaffold_atom.GetNeighbors():
             neighbor_id = neighbor.GetIdx()
             if neighbor_id not in anchors:
@@ -95,13 +89,12 @@ def convert_to_graph(mol, scaffold_ids, anchors, hba_ids, hbd_ids):
     graph.add_nodes_from(nodes)
 
     # Add edges
-    bond: Chem.Bond
     edges = [(bond.GetBeginAtomIdx(), bond.GetEndAtomIdx()) for bond in mol.GetBonds()]
     graph.add_edges_from(edges)
 
     # Attach properties to nodes
     for node_id in nodes:
-        atom_i: Chem.Atom = mol.GetAtomWithIdx(node_id)
+        atom_i = mol.GetAtomWithIdx(node_id)
         graph.nodes[node_id]['symbol'] = atom_i.GetSymbol()
     for node_id in anchors:
         graph.nodes[node_id]['anchor'] = anchors[node_id]
@@ -189,7 +182,6 @@ def process_mol_set(smiles_loc, output_loc, scaffold_smiles):
         output_loc (str): The location to save the result
         scaffold_smiles (str): The smiles of the scaffold
     """
-    scaffold: Chem.Mol
     try:
         scaffold = Chem.MolFromSmiles(scaffold_smiles)
     except (ValueError, RuntimeError):

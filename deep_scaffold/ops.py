@@ -30,7 +30,7 @@ def segment_softmax_with_bias(x, bias, seg_ids, eps=1e-6):
 
     # The max trick
     # size: [N, F + 1]
-    x_max: torch.Tensor = torch.cat([x, bias.index_select(0, seg_ids).unsqueeze(-1)], dim=-1)
+    x_max = torch.cat([x, bias.index_select(0, seg_ids).unsqueeze(-1)], dim=-1)
 
     # size: [N, ]
     x_max, _ = torch.max(x_max, dim=-1)

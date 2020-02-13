@@ -1,5 +1,4 @@
 """DenseNet for molecule"""
-import typing as t
 
 import torch
 from torch import nn

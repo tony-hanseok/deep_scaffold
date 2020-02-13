@@ -1,5 +1,4 @@
 """Utility functions"""
-import typing as t
 
 import networkx as nx
 import numpy as np

@@ -1,11 +1,7 @@
 """Sampler for scaffold-molecule pair"""
 import random
-import typing as t
 
 from torch.utils import data
-
-from data_utils.datasets import ScaffoldMolDataset
-
 
 __all__ = ['ScaffoldMolSampler']
 

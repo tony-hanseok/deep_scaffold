@@ -25,7 +25,6 @@ import random
 import sys
 import typing as t
 
-import cupy as cp
 import multiprocess as mp
 import numpy as np
 import torch
@@ -100,14 +99,12 @@ def sample(mdl, scaffold_smi, num_samples):
 
     # Convert molecule to numpy array
     # shape: 1, ..., 5
-    scaffold_array: np.ndarray
     scaffold_array, _ = get_array_from_mol(mol=scaffold,
                                            scaffold_nodes=range(scaffold.GetNumHeavyAtoms()),
                                            nh_nodes=[], np_nodes=[], k=1, p=1.0)
 
     # Convert numpy array to torch tensor
     # shape: 1, ..., 5
-    scaffold_tensor: torch.Tensor
     scaffold_tensor = torch.from_numpy(scaffold_array).long().cuda()
 
     # Generate
@@ -123,7 +120,6 @@ def sample(mdl, scaffold_smi, num_samples):
     mol_array = mol_array.detach().cpu().numpy()
 
     # Convert numpy array to Chem.Mol object
-    mol_list: t.List[t.Union[None, Chem.Mol]]
     mol_list = get_mol_from_array(mol_array, sanitize=True)
 
     # Convert Chem.Mol object to SMILES
@@ -260,10 +256,10 @@ def get_tanimoto(fp_1, fp_2):
         cp.ndarray: The similarity matrix calculated
     """
     # Calculate the dot product
-    dot_prod: cp.ndarray = fp_1.dot(fp_2.T).A
+    dot_prod = fp_1.dot(fp_2.T).A
 
     # Calculate the tanimoto similarity
-    sim_mat: cp.ndarray = dot_prod / (fp_1.sum(-1) + fp_2.sum(-1).T - dot_prod)
+    sim_mat = dot_prod / (fp_1.sum(-1) + fp_2.sum(-1).T - dot_prod)
     return sim_mat
 
 
@@ -342,11 +338,10 @@ def get_prop_stat(smiles_list, mapper):
     sample_size = len(smiles_list)
 
     # Get molecular properties for each set
-    prop_list: t.List[t.Tuple[float, ...]]
     prop_list = get_properties(smiles_list, mapper)
 
     # Convert to numpy array
-    prop_array: np.ndarray = np.array(prop_list)
+    prop_array = np.array(prop_list)
 
     # Calculate mean and variance of each property
     mu_mean, mu_var = prop_array.mean(0), prop_array.var(0, ddof=1)
@@ -386,7 +381,6 @@ class Dispatcher:
         # Load scaffold-molecule network
         gc.disable()
         with gzip.open(scaffold_network_loc, 'rb') as f:
-            self.scaffold2molecule: t.Dict[int, t.Set[int]]
             # Compile the mapping between scaffold and molecule
             self.scaffold2molecule = pickle.load(io.BufferedReader(f))
         gc.enable()
@@ -444,7 +438,7 @@ class Collector:
         result_str = result_str.replace('\r', '').replace('\n', '')
         self.f.write(result_str + '\n')
         self.f.flush()
-        print('Message receved and saved!')
+        print('Message received and saved!')
 
 
 def worker(url_dispatcher, url_collector, ckpt_loc, num_workers, num_samples):
@@ -476,7 +470,7 @@ def worker(url_dispatcher, url_collector, ckpt_loc, num_workers, num_samples):
         return list(pool.map(func, iterable, chunksize=100))
 
     while True:
-        message: t.Dict = client_dispatcher.dispatch()
+        message = client_dispatcher.dispatch()
         if message['message_type'] == 'none_message':
             break
         else:

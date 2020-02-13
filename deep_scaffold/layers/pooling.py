@@ -1,17 +1,16 @@
 """Layers related to pooling operations"""
-import typing as t
 
-from torch import nn
 import torch_scatter
+from torch import nn
 
 from deep_scaffold import ops
-
 
 __all__ = ['AvgPooling', 'SumPooling']
 
 
 class Pooling(nn.Module):
     """A abstract pooling layer"""
+
     def __init__(self, in_features, pooling_op=torch_scatter.scatter_mean, activation='elu'):
         """Constructor
 
@@ -50,6 +49,7 @@ class Pooling(nn.Module):
 
 class AvgPooling(Pooling):
     """Average pooling layer for graph"""
+
     def __init__(self, in_features, activation='elu'):
         """Performing graph level average pooling (with bn_relu)
 
@@ -64,6 +64,7 @@ class AvgPooling(Pooling):
 
 class SumPooling(Pooling):
     """Sum pooling layer for graph"""
+
     def __init__(self, in_features, activation='elu'):
         """Performing graph level sum pooling (with bn_relu)
 
